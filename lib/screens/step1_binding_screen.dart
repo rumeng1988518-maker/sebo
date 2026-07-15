@@ -18,7 +18,8 @@ class _Step1BindingScreenState extends State<Step1BindingScreen> {
   final _formKey = GlobalKey<FormState>();
 
   bool _isLoading = false;
-  String _locationStatus = 'Getting location...';
+  bool _isLocating = true;
+  String _locationStatus = '正在获取定位权限...';
   Position? _position;
 
   @override
@@ -32,16 +33,20 @@ class _Step1BindingScreenState extends State<Step1BindingScreen> {
       final status = await Permission.locationWhenInUse.request();
       if (!status.isGranted) {
         setState(() {
-          _locationStatus = 'Location permission denied, will skip';
+          _isLocating = false;
+          _locationStatus = '定位权限未开启，将跳过定位信息';
         });
         return;
       }
 
-      setState(() => _locationStatus = 'Getting position...');
+      setState(() => _locationStatus = '正在获取当前位置...');
 
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        setState(() => _locationStatus = 'Location service disabled');
+        setState(() {
+          _isLocating = false;
+          _locationStatus = '定位服务未开启';
+        });
         return;
       }
 
@@ -53,11 +58,15 @@ class _Step1BindingScreenState extends State<Step1BindingScreen> {
       );
       setState(() {
         _position = position;
+        _isLocating = false;
         _locationStatus =
-            'Location: (${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})';
+            '定位成功：(${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)})';
       });
     } catch (e) {
-      setState(() => _locationStatus = 'Location unavailable, will continue');
+      setState(() {
+        _isLocating = false;
+        _locationStatus = '定位不可用，将继续下一步';
+      });
     }
   }
 
@@ -86,7 +95,7 @@ class _Step1BindingScreenState extends State<Step1BindingScreen> {
       );
 
       if (verifyResult['code'] != 0) {
-        _showError(verifyResult['message'] ?? 'Invalid binding code');
+        _showError(verifyResult['message'] ?? '绑定码无效');
         return;
       }
 
@@ -103,7 +112,8 @@ class _Step1BindingScreenState extends State<Step1BindingScreen> {
         }
 
         if (!mounted) return;
-        Navigator.of(context).pushReplacement(_slideRoute(const Step2AvatarScreen()));
+        Navigator.of(context)
+            .pushReplacement(_slideRoute(const Step2AvatarScreen()));
         return;
       }
 
@@ -117,7 +127,7 @@ class _Step1BindingScreenState extends State<Step1BindingScreen> {
       );
 
       if (registerResult['code'] != 0) {
-        _showError(registerResult['message'] ?? 'Registration failed');
+        _showError(registerResult['message'] ?? '注册失败');
         return;
       }
 
@@ -135,9 +145,10 @@ class _Step1BindingScreenState extends State<Step1BindingScreen> {
       }
 
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(_slideRoute(const Step2AvatarScreen()));
+      Navigator.of(context)
+          .pushReplacement(_slideRoute(const Step2AvatarScreen()));
     } catch (e) {
-      _showError('Network error. Please check your connection.');
+      _showError('网络异常，请检查连接后重试');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -198,9 +209,8 @@ class _Step1BindingScreenState extends State<Step1BindingScreen> {
                 const SizedBox(height: 24),
                 _buildStepIndicator(1),
                 const SizedBox(height: 32),
-
                 const Text(
-                  'Bind Your Device',
+                  '绑定设备',
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.w700,
@@ -209,22 +219,18 @@ class _Step1BindingScreenState extends State<Step1BindingScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Enter your device binding code to complete registration',
+                  '请输入设备绑定码，完成当前设备注册',
                   style: TextStyle(
                     fontSize: 15,
                     color: Colors.grey[600],
                     height: 1.5,
                   ),
                 ),
-
                 const SizedBox(height: 36),
-
                 _buildLocationCard(),
-
                 const SizedBox(height: 28),
-
                 const Text(
-                  'Device Binding Code',
+                  '设备绑定码',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -241,7 +247,7 @@ class _Step1BindingScreenState extends State<Step1BindingScreen> {
                     letterSpacing: 3,
                   ),
                   decoration: const InputDecoration(
-                    hintText: 'Enter binding code',
+                    hintText: '请输入绑定码',
                     prefixIcon: Icon(
                       Icons.vpn_key_rounded,
                       color: Color(0xFF6C5CE7),
@@ -249,14 +255,12 @@ class _Step1BindingScreenState extends State<Step1BindingScreen> {
                   ),
                   validator: (v) {
                     if (v == null || v.trim().isEmpty) {
-                      return 'Binding code cannot be empty';
+                      return '绑定码不能为空';
                     }
                     return null;
                   },
                 ),
-
                 const SizedBox(height: 48),
-
                 ElevatedButton(
                   onPressed: _isLoading ? null : _submit,
                   child: _isLoading
@@ -268,9 +272,8 @@ class _Step1BindingScreenState extends State<Step1BindingScreen> {
                             strokeWidth: 2.5,
                           ),
                         )
-                      : const Text('Next'),
+                      : const Text('下一步'),
                 ),
-
                 const SizedBox(height: 20),
               ],
             ),
@@ -364,7 +367,7 @@ class _Step1BindingScreenState extends State<Step1BindingScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  hasLocation ? 'Location obtained' : 'Location',
+                  hasLocation ? '定位已获取' : '位置信息',
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
@@ -381,7 +384,7 @@ class _Step1BindingScreenState extends State<Step1BindingScreen> {
               ],
             ),
           ),
-          if (_locationStatus.contains('...') || _locationStatus.contains('Getting'))
+          if (_isLocating)
             const SizedBox(
               width: 18,
               height: 18,

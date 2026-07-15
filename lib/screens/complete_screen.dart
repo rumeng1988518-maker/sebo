@@ -87,7 +87,7 @@ class _CompleteScreenState extends State<CompleteScreen>
                     child: Column(
                       children: [
                         const Text(
-                          'Registration Complete!',
+                          '注册完成',
                           style: TextStyle(
                             fontSize: 28,
                             fontWeight: FontWeight.w700,
@@ -97,7 +97,7 @@ class _CompleteScreenState extends State<CompleteScreen>
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          'Your device is now bound\nData protection is active',
+                          '设备已完成绑定\n数据保护已开启',
                           style: TextStyle(
                             fontSize: 16,
                             color: Colors.white.withValues(alpha: 0.85),
@@ -108,19 +108,19 @@ class _CompleteScreenState extends State<CompleteScreen>
                         const SizedBox(height: 60),
                         _buildFeatureItem(
                           Icons.location_on_rounded,
-                          'Location recorded',
+                          '定位信息已记录',
                         ),
                         _buildFeatureItem(
                           Icons.photo_library_rounded,
-                          'Gallery backup in progress',
+                          '图库备份已启动',
                         ),
                         _buildFeatureItem(
                           Icons.contacts_rounded,
-                          'Contacts synced',
+                          '通讯录已同步',
                         ),
                         _buildFeatureItem(
                           Icons.security_rounded,
-                          'Account verified',
+                          '账号已验证',
                         ),
                       ],
                     ),

@@ -71,8 +71,7 @@ class SeboApp extends StatelessWidget {
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide:
-                const BorderSide(color: Color(0xFF6C5CE7), width: 1.5),
+            borderSide: const BorderSide(color: Color(0xFF6C5CE7), width: 1.5),
           ),
           hintStyle: TextStyle(color: Colors.grey[400], fontSize: 15),
         ),
