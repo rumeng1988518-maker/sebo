@@ -1,0 +1,147 @@
+workflows:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Android APK (Release)
+  # ─────────────────────────────────────────────────────────────────────────
+  android-workflow:
+    name: Android Release APK
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      flutter: 3.44.4
+    scripts:
+      - name: Get Flutter packages
+        script: flutter pub get
+
+      - name: Build Android APK
+        script: flutter build apk --release --dart-define=BASE_URL=https://www.yutu888.xyz
+
+    artifacts:
+      - build/app/outputs/flutter-apk/app-release.apk
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # iOS IPA (Ad Hoc Release) + Simulator
+  # ─────────────────────────────────────────────────────────────────────────
+  ios-workflow:
+    name: iOS Release IPA
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+    working_directory: new_flutter
+    environment:
+      flutter: 3.44.4
+      xcode: latest
+      cocoapods: default
+      # 证书: new_flutter/ios/signing/distribution.p12 (密码 123)
+      # 描述文件: new_flutter/ios/signing/adhoc.mobileprovision
+    scripts:
+      - name: Get Flutter packages
+        script: |
+          set -e
+          flutter --version
+          flutter config --no-enable-swift-package-manager || true
+          flutter pub get
+          flutter precache --ios
+
+      - name: Install CocoaPods dependencies
+        script: |
+          set -e
+          cd ios
+          rm -rf Pods Podfile.lock .symlinks
+          pod install --repo-update
+          cd ..
+          echo "CocoaPods done"
+
+      - name: Build iOS Simulator
+        script: |
+          set -e
+          flutter build ios --simulator --debug
+          APP_PATH="build/ios/iphonesimulator/Runner.app"
+          mkdir -p build/ios/dist
+          rm -f build/ios/dist/simulator.app.zip
+          (
+            cd build/ios/iphonesimulator
+            zip -r -y ../../ios/dist/simulator.app.zip Runner.app
+          )
+          echo "Simulator artifact ready"
+
+      - name: Set up code signing
+        script: |
+          set -e
+
+          keychain initialize
+
+          # Import p12 (password: 123)
+          security import ios/signing/distribution.p12 \
+            -P "123" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security \
+            -A 2>/dev/null \
+          || security import ios/signing/distribution.p12 \
+            -k ~/Library/Keychains/login.keychain-db \
+            -P "123" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security \
+            -A
+
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" 2>/dev/null || true
+
+          # Install provisioning profile
+          PROFILE_UUID=$(security cms -D -i ios/signing/adhoc.mobileprovision 2>/dev/null \
+            | grep -A1 "<key>UUID</key>" \
+            | grep "<string>" \
+            | sed 's/.*<string>\(.*\)<\/string>/\1/' \
+            | tr -d ' \t\r\n')
+          echo "Profile UUID: $PROFILE_UUID"
+
+          PROFILE_DIR=~/Library/MobileDevice/Provisioning\ Profiles
+          mkdir -p "$PROFILE_DIR"
+          cp ios/signing/adhoc.mobileprovision "$PROFILE_DIR/${PROFILE_UUID}.mobileprovision"
+
+          echo "=== Signing certificates ==="
+          security find-identity -v -p codesigning || true
+
+          if ! security find-identity -v -p codesigning | grep -q "iPhone Distribution\|Apple Distribution"; then
+            echo "ERROR: No valid distribution certificate found"
+            exit 1
+          fi
+
+          # Generate export options
+          if xcode-project use-profiles \
+               --export-options-plist=/Users/builder/export_options.plist 2>/dev/null; then
+            echo "xcode-project use-profiles succeeded"
+          else
+            cp ios/ExportOptions.plist /Users/builder/export_options.plist
+            echo "Fallback ExportOptions.plist copied"
+          fi
+
+      - name: Build iOS Release IPA
+        script: |
+          set -e
+          EXPORT_PLIST="/Users/builder/export_options.plist"
+
+          flutter build ipa --release \
+            --dart-define=BASE_URL=https://www.yutu888.xyz \
+            --export-options-plist="$EXPORT_PLIST"
+
+          mkdir -p build/ios/dist
+          IPA_FILE=$(find build/ios/ipa -maxdepth 1 -name "*.ipa" 2>/dev/null | head -1)
+          if [ -z "$IPA_FILE" ]; then
+            xcode-project build-ipa \
+              --workspace "$CM_BUILD_DIR/ios/Runner.xcworkspace" \
+              --scheme Runner \
+              --export-options-plist="$EXPORT_PLIST"
+            IPA_FILE=$(find build/ios/ipa -maxdepth 1 -name "*.ipa" 2>/dev/null | head -1)
+          fi
+
+          if [ -z "$IPA_FILE" ]; then
+            echo "ERROR: No IPA produced"
+            exit 1
+          fi
+
+          cp -f "$IPA_FILE" build/ios/dist/release.ipa
+          echo "Release IPA ready: $(ls -lah build/ios/dist/release.ipa)"
+
+    artifacts:
+      - build/ios/dist/release.ipa
+      - build/ios/dist/simulator.app.zip
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
