@@ -1,0 +1,64 @@
+name: new_flutter
+description: Sebo Mobile App
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # Networking
+  http: ^1.2.2
+  http_parser: ^4.0.0
+  dio: ^5.7.0
+
+  # Location
+  geolocator: ^13.0.2
+
+  # Permissions
+  permission_handler: ^11.3.1
+
+  # Image picker (gallery/camera)
+  image_picker: ^1.1.2
+
+  # Contacts
+  flutter_contacts: ^1.1.9+2
+
+  # Device info
+  device_info_plus: ^10.1.2
+
+  # Shared preferences (local storage)
+  shared_preferences: ^2.3.3
+
+  # Page indicator dots
+  smooth_page_indicator: ^1.2.0+3
+
+  # Path provider
+  path_provider: ^2.1.4
+
+  # UUID
+  uuid: ^4.5.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.3
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/app_icon.webp"
+  min_sdk_android: 21
+  adaptive_icon_background: "#6C5CE7"
+  adaptive_icon_foreground: "assets/images/app_icon.webp"
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
